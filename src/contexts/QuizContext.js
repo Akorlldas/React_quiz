@@ -3,6 +3,12 @@ import { createContext, useContext, useReducer, useEffect } from "react";
 const QuizContext = createContext();
 
 const SECS_PER_QUESTION = 30;
+const API_URL =
+  process.env.REACT_APP_API_URL ||
+  (process.env.NODE_ENV === "development"
+    ? "http://localhost:9000/questions"
+    : "/api/questions");
+const FALLBACK_URL = "/questions.json";
 
 const initialState = {
   questions: [],
@@ -79,14 +85,46 @@ function QuizProvider({ children }) {
   const numQuestions = questions.length;
   const maxPossiblePoints = questions.reduce(
     (prev, cur) => prev + cur.points,
-    0
+    0,
   );
 
   useEffect(function () {
-    fetch("http://localhost:9000/questions")
-      .then((res) => res.json())
-      .then((data) => dispatch({ type: "dataReceived", payload: data }))
-      .catch((err) => dispatch({ type: "dataFailed" }));
+    let isCancelled = false;
+
+    async function loadQuestions() {
+      const endpoints = [API_URL, FALLBACK_URL];
+
+      for (const endpoint of endpoints) {
+        try {
+          const res = await fetch(endpoint);
+          if (!res.ok) continue;
+
+          const data = await res.json();
+          const normalizedQuestions = Array.isArray(data)
+            ? data
+            : Array.isArray(data?.questions)
+              ? data.questions
+              : null;
+
+          if (!normalizedQuestions) continue;
+
+          if (!isCancelled) {
+            dispatch({ type: "dataReceived", payload: normalizedQuestions });
+          }
+          return;
+        } catch {
+          // Try next endpoint.
+        }
+      }
+
+      if (!isCancelled) dispatch({ type: "dataFailed" });
+    }
+
+    loadQuestions();
+
+    return () => {
+      isCancelled = true;
+    };
   }, []);
 
   return (
